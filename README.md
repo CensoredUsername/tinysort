@@ -2,6 +2,8 @@
 
 Tinysort is a library for sorting data in as little memory as possible.
 
+It was written as an answer on [this StackOverflow question](https://stackoverflow.com/questions/12748246/sorting-1-million-8-decimal-digit-numbers-with-1-mb-of-ram/60976739#60976739).
+
 [![Documentation](https://docs.rs/tinysort/badge.svg)](https://docs.rs/tinysort)
 [![Crate](https://img.shields.io/crates/v/tinysort)](https://crates.io/crates/tinysort)
 
