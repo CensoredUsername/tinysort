@@ -2,13 +2,34 @@
 
 Tinysort is a library for sorting data in as little memory as possible.
 
+## Example
+
+```rust
+use tinysort::TinySort;
+
+let mut sort = TinySort::new(8000, 1_000_000, 100_000_000).unwrap();
+
+// create some values to sort between the indicated borders
+let mut values: Vec<u32> = (0 .. 1_000_000).map(|i| (100_000_000.0 * (i as f64 * 0.4567895678).fract()) as u32).collect();
+for value in values.iter().cloned() {
+     sort.insert(value);
+}
+
+println!("TinySort using {} bytes of memory, normal sort using {} bytes of memory.", sort.used_space(), values.len() * std::mem::size_of::<u32>());
+let sorted: Vec<u32> = sort.into_iter().collect();
+values.sort_unstable();
+assert!(sorted == values);
+```
+This example will print `TinySort using 1043916 bytes of memory, normal sort using 4000000 bytes of memory.`,
+showing the almost 4x memory usage drop thanks to TinySort.
+
 ## Explanation
 
-With sorting algorithms, there is often a tradeoff between speed and memory usage.
+With sorting algorithms, there is often a trade-off between speed and memory usage.
 For classical sorting algorithms, we count memory usage as the extra memory usage of the algorithm, meaning any space the algorithm
 needs for storing the data it is operating on on top of the storage of the original values.
 
-Tinysort, under the applicable cases, does not need any extra memory. In fact, it usually requires **less** memory to store all sorted values than it would just take to store them in a continguous array. It only requires as much memory as is necessary to store the raw entropy of the contained sorted values with a small margin for bookkeeping purposes.
+Tinysort, under the applicable cases, does not need any extra memory. In fact, it requires **less** memory to store all sorted values than it would just take to store them in a contiguous array. It only requires as much memory as is necessary to store the raw entropy of the contained sorted values with a small margin for bookkeeping purposes.
 
 This means it can sort and store a million numbers between 0 and 100 million in less than a MiB of memory.
 
@@ -27,6 +48,20 @@ The algorithm stores the sorted data as a arithmetic coded bitstream in a circul
 To store all numbers this compact, the sorting algorithmm does not store the actual numbers in the compressed stream. It stores a list of differences in this compressed stream. These are then compressed via arithmetic coding.
 
 The chosen arithmetic code model has an alphabet of two letters. 1 means to add 1 to the accumulator, 0 means emit the current number. This means that in effect, all numbers are first transformed to a unary representation of n 1's, with a terminating 0. As the amount of 1's will equal the maximum number that was sorted, and the amount of 0's will match the amount of numbers totally sorted, this allows the algorithm to calculate the most optimal probability distribution of the alphabet, and use an arithmetic code model that comes extremely close to the theoretically maximum value, even accounting for inefficiencies of the algorithm as it operates in fixed precision.
+
+## FAQ
+
+**Q: How is this even possible.**
+
+A: The amount of entropy required to pick an amount of values out of a set, with no regard for order, is significantly lower than the amount of entropy required to store these values ordered.
+
+**Q: This algorithm is slow.**
+
+A: It is as fast as it can be, under these memory constraints.
+
+**Q: Why would you ever want to use this.**
+
+A: We do what we must, because we can.
 
 ## Usage
 
