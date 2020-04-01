@@ -2,6 +2,9 @@
 
 Tinysort is a library for sorting data in as little memory as possible.
 
+[![Documentation](https://docs.rs/tinysort/badge.svg)](https://docs.rs/tinysort)
+[![Crate](https://img.shields.io/crates/v/tinysort.svg)](https://crates.io/crates/tinysort)
+
 ## Example
 
 ```rust
@@ -22,10 +25,6 @@ assert!(sorted == values);
 ```
 This example will print `TinySort using 1043916 bytes of memory, normal sort using 4000000 bytes of memory.`,
 showing the almost 4x memory usage drop thanks to TinySort.
-
-## Documentation
-
-[Docs.rs](https://docs.rs/tinysort/)
 
 ## Explanation
 
