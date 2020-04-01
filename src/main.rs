@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 use rand::prelude::*;
-use rand::rngs::StdRng;
+//use rand::rngs::StdRng;
 
 pub fn main() {
-    let mut sort = TinySort::new(4_000, 1_000_000, 100_000_000);
+    let mut sort = TinySort::new(8_000, 1_000_000, 100_000_000);
 
     let mut values = generate_random_values(1_000_000, 100_000_000);
 
@@ -30,38 +30,38 @@ pub fn generate_random_values(amount: usize, max: u32) -> Vec<u32> {
     buf
 }
 
-#[test]
-pub fn test_arithmetic_coding() {
-    let mut buf = CircularBitBuffer::new(1_000_000);
+// #[test]
+// pub fn test_arithmetic_coding() {
+//     let mut buf = CircularBitBuffer::new(1_000_000);
 
-    let mut deque = std::collections::VecDeque::new();
-    let mut rng = StdRng::seed_from_u64(5);
+//     let mut deque = std::collections::VecDeque::new();
+//     let mut rng = StdRng::seed_from_u64(5);
 
-    let mut encoder = ArithmeticCoder::new(0x288df0c, 101);
+//     let mut encoder = ArithmeticCoder::new(0x288df0c, 101);
 
-    let mut i = 0;
-    for _ in 0 .. 100 {
-        let r = rng.gen_range(0, 200);
-        encoder.encode_number(&mut buf, r);
-        deque.push_front(r);
-        i += 1;
-    }
+//     let mut i = 0;
+//     for _ in 0 .. 100 {
+//         let r = rng.gen_range(0, 200);
+//         encoder.encode_number(&mut buf, r);
+//         deque.push_front(r);
+//         i += 1;
+//     }
 
-    let mut decoder = ArithmeticDecoder::new(0x288df0c, 101, &mut buf);
+//     let mut decoder = ArithmeticDecoder::new(0x288df0c, 101, &mut buf);
 
-    loop {
-        let r = rng.gen_range(0, 200);
-        encoder.encode_number(&mut buf, r);
-        deque.push_front(r);
+//     loop {
+//         let r = rng.gen_range(0, 200);
+//         encoder.encode_number(&mut buf, r);
+//         deque.push_front(r);
 
-        let val = decoder.decode_number(&mut buf);
-        let check = deque.pop_back().unwrap();
-        if check != val {
-            panic!("val = {}, check = {}, i = {}", val, check, i);
-        }
-        i += 1;
-    }
-}
+//         let val = decoder.decode_number(&mut buf);
+//         let check = deque.pop_back().unwrap();
+//         if check != val {
+//             panic!("val = {}, check = {}, i = {}", val, check, i);
+//         }
+//         i += 1;
+//     }
+// }
 
 pub struct CircularBitBuffer {
     buf: Vec<u32>,
@@ -148,19 +148,131 @@ impl CircularBitBuffer {
     }
 }
 
+pub struct BitStreamReadWriter<'a> {
+    buf: &'a mut [u32],
+
+    // the idx we'll next read from
+    readidx: usize,
+    // the idx we'll next write to
+    writeidx: usize,
+}
+
+impl<'a> BitStreamReadWriter<'a> {
+    pub fn new(buf: &mut [u32], readidx: usize, writeidx: usize) -> BitStreamReadWriter {
+        BitStreamReadWriter {
+            buf,
+            readidx,
+            writeidx,
+        }
+    }
+
+    pub fn get_writeidx(&self) -> usize {
+        self.writeidx
+    }
+
+    pub fn get_readidx(&self) -> usize {
+        self.readidx
+    }
+
+    pub fn pull(&mut self) -> Option<bool> {
+        // check if we wouldn't cross the other idx and get corrupt data
+        if self.readidx + 1 == self.writeidx {
+            return None;
+        }
+
+        // read the bit
+        let rv = self.buf[self.readidx / 32] & (1 << (self.readidx % 32)) != 0;
+
+        self.readidx += 1;
+
+        Some(rv)
+    }
+
+    pub fn push(&mut self, bit: bool) -> Result<(), ()> {
+        // check if we wouldn't cross the other idx and create corrupt data
+        if self.writeidx + 1 == self.readidx {
+            return Err(())
+        }
+
+        // edit the bit we're at
+        let mut val = self.buf[self.writeidx / 32];
+        val &= !(1 << (self.writeidx % 32));
+        val |= (bit as u32) << (self.writeidx % 32);
+        self.buf[self.writeidx / 32] = val;
+
+        self.writeidx += 1;
+
+        Ok(())
+    }
+
+    pub fn pull_bits(&mut self, bits: u8) -> Option<u32> {
+        let mut accum = 0;
+
+        for _ in 0 .. bits {
+            accum <<= 1;
+            accum |= self.pull()? as u32;
+        }
+
+        Some(accum)
+    }
+
+    pub fn push_bits(&mut self, bits: u8, value: u32) -> Result<(), ()> {
+        let mut i = bits;
+        while i != 0 {
+            i -= 1;
+            self.push(value & (1 << i) != 0)?;
+        }
+        Ok(())
+    }
+}
+
 pub struct TinySort {
+    // core algorithm paramters: the amount of values to store, the maximum value to store and the amount of extra
+    // space to use
     amount: u32,
     maxval: u32,
+    extra: usize,
+
+    // Arithmetic coding precalculated constants: the boundary between a 0 and a 1, and the mimimum
+    // range required to not lose numerical precision
     boundary: u32,
     minrange: u32,
+
+    // the buffer we use to store all our data in. compressed data or intermediate stuff to be sorted
     buf: Vec<u32>,
-    buf_cap: usize,
-    storage: CircularBitBuffer,
+
+    // the amount of values committed to compression
     committed: usize,
+    // the size of the committed buffer, in words
+    committed_len: usize,
+
+    // amount of u32's reserved for intermediate sorting
+    sort_cap: usize,
+    // amount of u32 collected but not sorted yet
+    sort_pending: usize,
 }
 
 impl TinySort {
-    pub fn new(sortbuf: usize, amount: u32, maxval: u32) -> TinySort {
+    fn calc_new_sort_cap(&mut self) {
+        let mut sort_cap = self.extra;
+        let ratio = self.maxval as f64 / self.amount as f64;
+        loop {
+            let new_sort_cap = sort_cap + self.extra;
+            let next_committed = self.committed + new_sort_cap;
+            let theoretical_bits_required = (next_committed as f64) * (ratio + 1.0f64).log2() + (self.maxval as f64) * (1.0 / ratio + 1.0).log2();
+            let words_required = ((1.0001 * theoretical_bits_required) as usize) / 32 + 5;
+
+            if words_required + new_sort_cap > self.buf.len() {
+                //println!("Going to collect {} values. This leaves {} space for the compressed buffers", sort_cap, 4 * (self.buf.len() - sort_cap));
+                break;
+            }
+            sort_cap = new_sort_cap;
+        }
+        // best possible sorting capacity
+        self.sort_cap = sort_cap;
+    }
+
+    pub fn new(extra: usize, amount: u32, maxval: u32) -> TinySort {
 
         // estimate the amount of space we'll need for this sort. We calculate the theoretically needed and add 0.01% to correct for
         // numerical inaccuracies in the arithmetic encoding
@@ -168,9 +280,9 @@ impl TinySort {
         let required = (amount as f64) * (ratio + 1.0f64).log2() + (maxval as f64) * (1.0 / ratio + 1.0).log2();
 
         // amount of u32 words needed to contain this, rounded up.
-        let bufsize = ((1.0001 * required) as usize) / 32 + 5;
-        let mut storage = CircularBitBuffer::new(bufsize);
+        let bufsize = ((1.0001 * required) as usize) / 32 + 5 + extra;
 
+        let buf = vec![0; bufsize];
 
         let minrange;
         let boundary;
@@ -184,53 +296,72 @@ impl TinySort {
 
         dbg!(minrange, boundary, bufsize*4);
 
-        let mut encoder = ArithmeticCoder::new(boundary, minrange);
-        encoder.flush(&mut storage);
+        // build a fake "committed" section for now
+        let committed = 0;
+        let committed_len = 1;
 
-        TinySort {
+        let mut rv = TinySort {
             amount,
             maxval,
+            extra,
+
             boundary,
             minrange,
-            buf: Vec::with_capacity(sortbuf),
-            buf_cap: sortbuf,
-            storage,
-            committed: 0,
-        }
+
+            buf,
+
+            committed,
+            committed_len,
+
+            sort_cap: extra,
+            sort_pending: 0,
+        };
+        rv.calc_new_sort_cap();
+        rv
     }
 
     pub fn used_space(&self) -> usize {
-        self.storage.used_space() + 
-        std::mem::size_of::<TinySort>() + 4 * self.buf_cap
+        std::mem::size_of::<TinySort>() + 4 * self.buf.len()
     }
 
     pub fn insert(&mut self, value: u32) {
-        self.buf.push(value);
+        let idx = self.buf.len() - self.sort_cap + self.sort_pending;
+        self.buf[idx] = value;
+        self.sort_pending += 1;
 
-        if self.buf.len() >= self.buf_cap {
+        if self.sort_pending == self.sort_cap {
             self.commit();
         }
     }
 
     pub fn commit(&mut self) {
-        // sort the temp buffer
-        self.buf.sort();
+        // split the buffer
+        let idx = self.buf.len() - self.sort_cap;
+        let (compressed_buf, mut presort_buf) = self.buf.split_at_mut(idx);
 
-        // deal with spacing in the bitstream
-        let storage = &mut self.storage;
+        // sort all pending values
+        presort_buf = &mut presort_buf[..self.sort_pending];
+        presort_buf.sort_unstable();
+
+        // right-align the old compressed buffer
+        compressed_buf.copy_within(0 .. self.committed_len, idx - self.committed_len);
+
+        // create the bitstream reader
+        let mut storage = BitStreamReadWriter::new(compressed_buf, (idx - self.committed_len) * 32, 0);
 
         // create our buffer encoder/decoders
         let mut encoder = ArithmeticCoder::new(self.boundary, self.minrange);
-        let mut decoder = ArithmeticDecoder::new(self.boundary, self.minrange, storage);
+        let mut decoder = ArithmeticDecoder::new(self.boundary, self.minrange, &mut storage);
+
+        //println!("Starting commit. compressed_len={}, compressed={}. compressed buffer relocated to {}", self.committed_len, self.committed, (idx - self.committed_len));
 
         // merge the temp buffer and the committed buffer into a new committed buffer
 
         // create the iterators and update the amount of data comitted after this step
         let mut storage_iter = 0 .. self.committed;
-        self.committed += self.buf.len();
-        let mut new_iter = self.buf.drain(..);
+        let mut new_iter = presort_buf.iter().cloned();
 
-        let mut storage_num = storage_iter.next().map(|_| decoder.decode_number(storage));
+        let mut storage_num = storage_iter.next().map(|_| decoder.decode_number(&mut storage));
         let mut new_num = new_iter.next();
 
         let mut last_num = 0u32;
@@ -239,58 +370,76 @@ impl TinySort {
             match (storage_num, new_num) {
                 (None, None) => break,
                 (None, Some(n)) => {
-                    encoder.encode_number(storage, n - last_num);
+                    encoder.encode_number(&mut storage, n - last_num);
                     last_num = n;
                     new_num = new_iter.next();
                 },
                 (Some(s), Some(n)) if s > n => {
-                    encoder.encode_number(storage, n - last_num);
+                    encoder.encode_number(&mut storage, n - last_num);
                     last_num = n;
                     new_num = new_iter.next();
                 },
                 (Some(s), _) => {
-                    encoder.encode_number(storage, s - last_num);
+                    encoder.encode_number(&mut storage, s - last_num);
                     last_num = s;
-                    storage_num = storage_iter.next().map(|_| decoder.decode_number(storage) + s);
+                    storage_num = storage_iter.next().map(|_| decoder.decode_number(&mut storage) + s);
                 }
             }
         }
 
-        encoder.flush(storage);
+        encoder.flush(&mut storage);
+
+        // update values
+        self.committed += self.sort_pending;
+        self.sort_pending = 0;
+        self.committed_len = (storage.get_writeidx() + 31) / 32;
 
         let ratio = self.maxval as f64 / self.amount as f64;
         let theoretical = (self.committed as f64) * (ratio + 1.0f64).log2() + (self.maxval as f64) * (1.0 / ratio + 1.0).log2(); 
-        println!("committed {} {} ({})", self.committed, (storage.len() + 7) / 8, theoretical / 8.);
+        println!("committed {} {} ({})", self.committed, self.committed_len * 4, theoretical / 8.);
+
+        self.calc_new_sort_cap();
     }
     
     pub fn into_iter(mut self) -> TinySortIterator {
-        if self.buf.len() != 0 {
+        if self.sort_pending != 0 {
             self.commit();
         }
 
+        let mut storage = BitStreamReadWriter::new(&mut self.buf, 0, 0);
+        let decoder = ArithmeticDecoder::new(self.boundary, self.minrange, &mut storage);
+        let readidx = storage.get_readidx();
+
         TinySortIterator {
+            buf: self.buf,
+            committed: self.committed,
             accum: 0,
-            decoder: ArithmeticDecoder::new(self.boundary, self.minrange, &mut self.storage),
-            inner: self
+            decoder,
+            readidx,
         }
     }
 }
 
 pub struct TinySortIterator {
-    inner: TinySort,
+    buf: Vec<u32>,
+    committed: usize,
     accum: u32,
-    decoder: ArithmeticDecoder
+    decoder: ArithmeticDecoder,
+    readidx: usize,
 }
 
 impl Iterator for TinySortIterator {
     type Item = u32;
     fn next(&mut self) -> Option<u32> {
-        if self.inner.committed == 0 {
+        if self.committed == 0 {
             return None;
         }
-        self.inner.committed -= 1;
 
-        let decoded = self.decoder.decode_number(&mut self.inner.storage);
+        self.committed -= 1;
+
+        let mut storage = BitStreamReadWriter::new(&mut self.buf, self.readidx, 0);
+        let decoded = self.decoder.decode_number(&mut storage);
+        self.readidx = storage.get_readidx();
         self.accum += decoded;
         Some(self.accum)
     }
@@ -314,7 +463,7 @@ impl ArithmeticCoder {
             minrange
         }
     }
-    fn encode(&mut self, bitstream: &mut CircularBitBuffer, bit: bool) {
+    fn encode(&mut self, bitstream: &mut BitStreamReadWriter, bit: bool) {
         let mut a: u32;
         let mut b: u32;
 
@@ -354,13 +503,13 @@ impl ArithmeticCoder {
         self.bottom = a;
         self.range = (b - a) as u64;
     }
-    fn encode_number(&mut self, bitstream: &mut CircularBitBuffer, value: u32) {
+    fn encode_number(&mut self, bitstream: &mut BitStreamReadWriter, value: u32) {
         for _ in 0 .. value {
             self.encode(bitstream, true);
         }
         self.encode(bitstream, false);
     }
-    fn flush(&mut self, bitstream: &mut CircularBitBuffer) {
+    fn flush(&mut self, bitstream: &mut BitStreamReadWriter) {
         bitstream.push_bits(32, self.bottom + (self.range as u32)/ 2).unwrap();
     }
 }
@@ -375,7 +524,7 @@ struct ArithmeticDecoder {
 }
 
 impl ArithmeticDecoder {
-    pub fn new(boundary: u32, minrange: u32, bitstream: &mut CircularBitBuffer) -> ArithmeticDecoder {
+    pub fn new(boundary: u32, minrange: u32, bitstream: &mut BitStreamReadWriter) -> ArithmeticDecoder {
         ArithmeticDecoder {
             bottom: 0,
             range: 0xFFFF_FFFF,
@@ -384,7 +533,7 @@ impl ArithmeticDecoder {
             workbuf: bitstream.pull_bits(32).unwrap(),
         }
     }
-    fn decode(&mut self, bitstream: &mut CircularBitBuffer) -> bool {
+    fn decode(&mut self, bitstream: &mut BitStreamReadWriter) -> bool {
         let mut a: u32;
         let mut b: u32;
 
@@ -427,7 +576,7 @@ impl ArithmeticDecoder {
 
         rv
     }
-    fn decode_number(&mut self, bitstream: &mut CircularBitBuffer) -> u32 {
+    fn decode_number(&mut self, bitstream: &mut BitStreamReadWriter) -> u32 {
         let mut i = 0;
         while self.decode(bitstream) {
             i += 1;
