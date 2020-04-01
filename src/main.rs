@@ -168,13 +168,21 @@ impl TinySort {
         let required = (amount as f64) * (ratio + 1.0f64).log2() + (maxval as f64) * (1.0 / ratio + 1.0).log2();
 
         // amount of u32 words needed to contain this, rounded up.
-        let bufsize = ((1.0001 * required) as usize) / 32 + 1;
+        let bufsize = ((1.0001 * required) as usize) / 32 + 5;
         let mut storage = CircularBitBuffer::new(bufsize);
 
-        let minrange = ratio.ceil() as u32 + 1;
-        let boundary = 0xFFFF_FFFFu32 / minrange as u32;
 
-        dbg!(minrange, boundary, bufsize);
+        let minrange;
+        let boundary;
+        if ratio >= 1. {
+            minrange = ratio.ceil() as u32 + 1;
+            boundary = 0xFFFF_FFFFu32 / minrange as u32;
+        } else {
+            minrange = (1. / ratio).ceil() as u32 + 1;
+            boundary = 0xFFFF_FFFF - 0xFFFF_FFFFu32 / minrange as u32;
+        }
+
+        dbg!(minrange, boundary, bufsize*4);
 
         let mut encoder = ArithmeticCoder::new(boundary, minrange);
         encoder.flush(&mut storage);
@@ -252,7 +260,7 @@ impl TinySort {
 
         let ratio = self.maxval as f64 / self.amount as f64;
         let theoretical = (self.committed as f64) * (ratio + 1.0f64).log2() + (self.maxval as f64) * (1.0 / ratio + 1.0).log2(); 
-        println!("committed {} {} ({})", self.committed, storage.used_space(), theoretical / 8.);
+        println!("committed {} {} ({})", self.committed, (storage.len() + 7) / 8, theoretical / 8.);
     }
     
     pub fn into_iter(mut self) -> TinySortIterator {
