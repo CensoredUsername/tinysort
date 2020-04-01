@@ -14,11 +14,11 @@ This means it can sort and store a million numbers between 0 and 100 million in 
 
 ## Complexity
 
-The memory and time complexity of this algorithm are dependent on two properties of its input. The first being the total amount of values it will process (N) and the second being the largest value contained in the input (M)
+The memory and time complexity of this algorithm are dependent on two properties of its input. The first being the total amount of values it will process (`N`) and the second being the largest value contained in the input (`M`)
 
-The memory use of the algorithm scales as worst case O(N*log(1+M/N) + M*log(1+N/M))
+The memory use of the algorithm scales as worst case `O(N*log(1+M/N) + M*log(1+N/M))`
 
-The time complexity of the algorithm is worst case O(N*(Log(N) + M))
+The time complexity of the algorithm is worst case `O(N*(Log(N) + M))`
 
 ## Internal details
 
