@@ -7,7 +7,7 @@ edition = "2018"
 description = "The lowest memory footprint sorting algorithm"
 repository = "https://github.com/CensoredUsername/tinysort"
 
-readme = "../README.md"
+readme = "README.md"
 keywords = ["sorting"]
 license = "MPL-2.0"
 
