@@ -3,7 +3,7 @@
 Tinysort is a library for sorting data in as little memory as possible.
 
 [![Documentation](https://docs.rs/tinysort/badge.svg)](https://docs.rs/tinysort)
-[![Crate](https://img.shields.io/crates/v/tinysort.svg)](https://crates.io/crates/tinysort)
+[![Crate](https://img.shields.io/crates/v/tinysort)](https://crates.io/crates/tinysort)
 
 ## Example
 
